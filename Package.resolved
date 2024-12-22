@@ -1,0 +1,15 @@
+{
+  "originHash" : "5b86161eaf51f831f64e0386eeeb9e1471ab4e33ce9fdee1548f99153a6a7f38",
+  "pins" : [
+    {
+      "identity" : "feat_util",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/netcanis/feat_util.git",
+      "state" : {
+        "revision" : "aee65efba50cde7dd51f376dd78b1569eb140d2f",
+        "version" : "1.0.1"
+      }
+    }
+  ],
+  "version" : 3
+}

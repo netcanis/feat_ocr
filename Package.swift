@@ -12,6 +12,7 @@ let package = Package(
     ],
     dependencies: [
         // Define external dependencies here using GitHub URLs or package names.
+        .package(url: "https://github.com/netcanis/feat_util.git", .upToNextMajor(from: "1.0.1")),
     ],
     targets: [
         // Binary Target for Prebuilt C++ Library
@@ -38,6 +39,7 @@ let package = Package(
             name: "feat_ocr",
             dependencies: [
                 "HiOCRWrapper",
+                .product(name: "feat_util", package: "feat_util"),
             ],
             path: "Sources/feat_ocr",
             resources: [

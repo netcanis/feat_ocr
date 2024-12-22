@@ -11,6 +11,7 @@ import AVFoundation
 import Combine
 @preconcurrency import Vision
 import HiOCRWrapper
+import feat_util
 
 /// A class for scanning credit card information.
 public class HiCardScanner: NSObject, @unchecked Sendable {
@@ -35,7 +36,7 @@ public class HiCardScanner: NSObject, @unchecked Sendable {
     private var closeButton: UIButton?
 
     /// Defines the region of interest (ROI) for the scanner.
-    private var scanBox: CGRect = .zero
+    private var roiRect: CGRect = .zero
 
     /// The screen size.
     private var screenSize: CGSize = .zero
@@ -48,6 +49,8 @@ public class HiCardScanner: NSObject, @unchecked Sendable {
 
     /// Stores the last scanned image.
     public var lastScannedImage: UIImage?
+
+    private var screenScale: CGFloat = 1.0
 
     /// Starts the scanner.
     /// - Parameter callback: A closure to receive the scan results.
@@ -127,11 +130,11 @@ public class HiCardScanner: NSObject, @unchecked Sendable {
         let sideMargin: CGFloat = 10
         let boxWidth = previewView!.bounds.width - (sideMargin * 2)
         let boxHeight = boxWidth / 1.586
-        scanBox = CGRect(x: sideMargin, y: (previewView!.bounds.height - boxHeight) / 2.0, width: boxWidth, height: boxHeight)
+        roiRect = CGRect(x: sideMargin, y: (previewView!.bounds.height - boxHeight) / 2.0, width: boxWidth, height: boxHeight)
 
         maskView = HiCardRoiMaskView(frame: previewView!.bounds)
         maskView?.backgroundColor = .clear
-        maskView?.scanBox = scanBox
+        maskView?.scanBox = roiRect
         previewView?.addSubview(maskView!)
 
         let bundle = getFeatOcrBundle()
@@ -272,13 +275,10 @@ extension HiCardScanner: AVCaptureVideoDataOutputSampleBufferDelegate {
         }
         
         let ciImage = CIImage(cvImageBuffer: pixelBuffer)
-        let angle = 0.0//detectTextOrientationAngle(ciImage: ciImage)
-        let rotatedImage = rotateImage(ciImage: ciImage, by: angle)
         // Crop the frame to the specified ROI (scanBox)
-        let croppedImage = cropToCameraCoordinates(ciImage: rotatedImage, scanBox: scanBox, screenSize: screenSize)
+        let croppedImage = ciImage.hiCropToCameraCoordinates(roiRect: roiRect, screenSize: screenSize)
         // Resize cropped image (1586 x 1000)
-        let resizedImage = resizeImage(ciImage: croppedImage, targetSize: CGSize(width: 1586.0, height: 1000.0))
-        
+        let resizedImage = croppedImage.hiResizeToFill(targetSize: CGSize(width: 1586.0, height: 1000.0))
         
         // Setup OCR request
         let request = VNRecognizeTextRequest { request, error in
@@ -344,10 +344,12 @@ extension HiCardScanner: AVCaptureVideoDataOutputSampleBufferDelegate {
         // Preprocess the image
         var preprocessedImage: CIImage = resizedImage
         if (count % 3 == 0) {
-            if let outputUIImage = convertToUIImage(ciImage: resizedImage) {
+            // 최근 이미지 할당.
+            if let outputUIImage = resizedImage.hiConvertToUIImage() {
                 self.lastScannedImage = outputUIImage
             }
             
+            // 이미지 프로세싱 처리
             if let outputCIImage = HiPreProcessImage.shared.preprocessForTextRecognition(image: resizedImage) {
                 preprocessedImage = outputCIImage
             }
@@ -361,92 +363,9 @@ extension HiCardScanner: AVCaptureVideoDataOutputSampleBufferDelegate {
             print("Failed to perform text recognition: \(error.localizedDescription)")
         }
         
+        
+        // 카운트를 증가 (자동으로 0~255 범위 순환)
         count = (count + 1) % 255
-    }
-
-    func rotateImage(ciImage: CIImage, by degrees: CGFloat) -> CIImage {
-        if degrees == 0.0 { return ciImage }
-        let radians = degrees * .pi / 180
-        let originalWidth = ciImage.extent.width
-        let originalHeight = ciImage.extent.height
-        let transform = CGAffineTransform(translationX: originalWidth / 2, y: originalHeight / 2)
-            .rotated(by: radians)
-            .translatedBy(x: -originalWidth / 2, y: -originalHeight / 2)
-        return ciImage.transformed(by: transform)
-    }
-
-    func cropToCameraCoordinates(ciImage: CIImage, scanBox: CGRect, screenSize: CGSize) -> CIImage {
-        let cameraWidth  = ciImage.extent.width
-        let cameraHeight = ciImage.extent.height
-
-        // Calculate the scaled ROI in the camera's coordinate system
-        let widthScale  = cameraWidth  / screenSize.width
-        let heightScale = cameraHeight / screenSize.height
-        let minScale = min(widthScale, heightScale)
-
-        let cropHeight = scanBox.height * minScale
-        let cropWidth = cropHeight * 1.586
-        let cropOriginX = (cameraWidth - cropWidth) / 2
-        let cropOriginY = (cameraHeight - (scanBox.origin.y + scanBox.height) * minScale)
-
-        let scaledScanBox = CGRect(
-            x: cropOriginX,
-            y: cropOriginY,
-            width: cropWidth,
-            height: cropHeight
-        )
-
-        return ciImage.cropped(to: scaledScanBox)
-    }
-    
-    func resizeImage(ciImage: CIImage, targetSize: CGSize) -> CIImage {
-        // Original dimensions
-        let originalExtent = ciImage.extent
-        let originalWidth = originalExtent.width
-        let originalHeight = originalExtent.height
-
-        // Scale factors for both dimensions
-        let widthScale = targetSize.width / originalWidth
-        let heightScale = targetSize.height / originalHeight
-        let scale = max(widthScale, heightScale) // Maintain aspect ratio
-
-        // Apply scaling transformation
-        let scaledImage = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-
-        // Calculate cropping rectangle to match the target size
-        let scaledExtent = scaledImage.extent
-        let cropOriginX = max((scaledExtent.width - targetSize.width) / 2.0, 0)
-        let cropOriginY = max((scaledExtent.height - targetSize.height) / 2.0, 0)
-        let cropRect = CGRect(x: cropOriginX, y: cropOriginY, width: targetSize.width, height: targetSize.height)
-
-        // Crop and return the final image
-        guard scaledExtent.contains(cropRect) else {
-            //print("Error: Crop rect is outside the scaled image bounds.")
-            return scaledImage
-        }
-
-        return scaledImage.cropped(to: cropRect)
-    }
-
-    func resizeImage(ciImage: CIImage, toFit targetSize: CGSize) -> CIImage {
-        let originalWidth = ciImage.extent.width
-        let originalHeight = ciImage.extent.height
-        let widthRatio = targetSize.width / originalWidth
-        let heightRatio = targetSize.height / originalHeight
-        let scale = min(widthRatio, heightRatio)
-
-        // Apply scaling and translation
-        let transform = CGAffineTransform(scaleX: scale, y: scale)
-        let resizedImage = ciImage.transformed(by: transform)
-        let centeredX = (targetSize.width - resizedImage.extent.width) / 2.0
-        let centeredY = (targetSize.height - resizedImage.extent.height) / 2.0
-        return resizedImage.transformed(by: CGAffineTransform(translationX: centeredX, y: centeredY))
-    }
-    
-    func convertToUIImage(ciImage: CIImage) -> UIImage? {
-        let context = CIContext()
-        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return nil }
-        return UIImage(cgImage: cgImage)
     }
 }
 
