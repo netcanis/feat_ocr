@@ -52,7 +52,6 @@ public struct HiCardNumberListView: View {
     /// - Updates the list if the card number is already present.
     /// - Adds a new card number to the list if it's not a duplicate.
     private func startCardScan() {
-        HiCardScanner.shared.licenseKey = "9597cbfa0d43a47b3e48842bb1025b409bf8ab3919a89d44acaab17b08bebd14|1737361504"
         HiCardScanner.shared.start { result in
             DispatchQueue.main.async {
                 if let index = numbers.firstIndex(where: { $0.cardNumber == result.cardNumber }) {
