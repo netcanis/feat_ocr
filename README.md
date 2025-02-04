@@ -173,7 +173,7 @@ public struct HiCardNumberListView: View {
 
 ## **License**
 
-feat_qr is available under the Apache License 2.0. See the LICENSE file for details.
+feat_ocr is available under the Apache License 2.0. See the LICENSE file for details.
 
 ---
 
